@@ -2,11 +2,11 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 import uvicorn
-from fastapi.responses import JSONResponse
 
 # ✅ Import với relative imports (dấu chấm)
 from .config.env import settings
 from .routes.chat import router as chat_router
+from .routes.facebook import router as facebook_router
 
 # Create FastAPI app
 app = FastAPI(
@@ -14,6 +14,7 @@ app = FastAPI(
     description="AI Chatbot for BeWo Fashion",
     version="1.0.0"
 )
+
 # Thêm middleware để force UTF-8
 @app.middleware("http")
 async def add_charset_header(request, call_next):
@@ -33,6 +34,7 @@ app.add_middleware(
 
 # Include routers
 app.include_router(chat_router, tags=["Chat"])
+app.include_router(facebook_router, tags=["Facebook"])  # ✅ THÊM DÒNG NÀY
 
 # Health check
 @app.get("/")
@@ -51,6 +53,8 @@ async def startup_event():
     print(f"📡 Server running on: http://localhost:{settings.PORT}")
     print(f"🌍 Environment: {settings.NODE_ENV}")
     print(f"✅ Health check: http://localhost:{settings.PORT}/health")
+    print(f"💬 Chat endpoint: http://localhost:{settings.PORT}/chat/")
+    print(f"🔵 Facebook webhook: http://localhost:{settings.PORT}/facebook/webhook")
     print("=" * 50)
 
 # Run server (chỉ khi chạy trực tiếp file này)
