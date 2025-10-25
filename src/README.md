@@ -54,3 +54,5 @@ Tệp này giải thích cấu trúc và mục đích của các tệp và thư 
 ### `utils/`
 - `connect_supabase.py`: Tiện ích để kết nối với cơ sở dữ liệu Supabase.
 - `formatters.py`: Chứa các hàm để định dạng dữ liệu.
+
+# Method 1: Dùng Invoke-RestMethod

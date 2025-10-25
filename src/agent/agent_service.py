@@ -1,11 +1,11 @@
 # ============================================
-# agent/agent_service.py - OpenAI Agents Version
+# agent/agent_service.py - OpenAI Agents + LiteLLM
 # ============================================
 
 import os
 import re
 from typing import List, Dict, Any, Optional
-from pydantic import BaseModel, Field
+from pydantic import Field
 
 from dotenv import load_dotenv
 from pathlib import Path
@@ -16,14 +16,13 @@ env_path = project_root / ".env"
 if env_path.exists():
     print(f"[Agent] Đang tải biến môi trường từ: {env_path}")
     load_dotenv(dotenv_path=env_path)
-else:
-    print(f"[Agent] Cảnh báo: Không tìm thấy tệp .env tại {env_path}.")
 
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 WEBSITE_URL = os.getenv("WEBSITE_URL", "https://bewo.vn")
 
-# Import OpenAI Agents
-from agents import Agent, Runner, function_tool
+# Import OpenAI Agents với LiteLLM
+from agents import Agent, Runner, function_tool, ModelSettings
+from agents.extensions.models.litellm_model import LitellmModel
 
 # Import Supabase
 from ..utils.connect_supabase import get_supabase_client
@@ -37,41 +36,13 @@ def _format_price(price: Optional[float]) -> str:
         price = 0
     return f"{price:,.0f} ₫".replace(",", ".")
 
-# --- Pydantic Models ---
-
-class Product(BaseModel):
-    id: str
-    name: str
-    price: str
-    priceRaw: float
-    stock: int
-    url: str
-    description: Optional[str] = None
-    image: Optional[str] = None
-
-class OrderStatus(BaseModel):
-    id: str
-    status: str
-    total: str
-    createdAt: str
-
-class ProductDetails(BaseModel):
-    id: str
-    name: str
-    price: str
-    priceRaw: float
-    stock: int
-    url: str
-    description: Optional[str] = None
-    images: Optional[List[str]] = None
-
 # --- Tool Functions ---
 
 @function_tool
 async def search_products(
     query: str = Field(..., description='Từ khóa tìm kiếm (VD: "váy dạ hội", "áo sơ mi")'),
     limit: int = Field(default=5, description='Số lượng sản phẩm tối đa')
-) -> List[Product]:
+) -> List[Dict]:
     """Tìm kiếm sản phẩm trong cửa hàng theo từ khóa"""
     print(f"[Tool] Searching products: \"{query}\"")
     if not supabase:
@@ -91,16 +62,16 @@ async def search_products(
             primary_image = next((img["image_url"] for img in images if img.get("is_primary")), None)
             first_image = images[0]["image_url"] if images else None
             
-            products.append(Product(
-                id=p["id"],
-                name=p["name"],
-                price=_format_price(p.get("price")),
-                priceRaw=p.get("price", 0),
-                stock=p.get("stock", 0),
-                url=f"{WEBSITE_URL}/products/{p.get('slug', '')}",
-                description=p.get("description", "")[:150] if p.get("description") else None,
-                image=primary_image or first_image
-            ))
+            products.append({
+                "id": p["id"],
+                "name": p["name"],
+                "price": _format_price(p.get("price")),
+                "priceRaw": p.get("price", 0),
+                "stock": p.get("stock", 0),
+                "url": f"{WEBSITE_URL}/products/{p.get('slug', '')}",
+                "description": p.get("description", "")[:150] if p.get("description") else None,
+                "image": primary_image or first_image
+            })
 
         print(f"[Tool] Found {len(products)} products")
         return products
@@ -111,7 +82,7 @@ async def search_products(
 @function_tool
 async def get_order_status(
     orderId: str = Field(..., description='Mã đơn hàng')
-) -> Optional[OrderStatus]:
+) -> Optional[Dict]:
     """Tra cứu trạng thái đơn hàng theo mã đơn hàng"""
     print(f"[Tool] Getting order: {orderId}")
     if not supabase:
@@ -127,7 +98,6 @@ async def get_order_status(
             .execute()
 
         if not response.data or len(response.data) == 0:
-            print(f"[Tool] Order lookup error: No data returned")
             return None
 
         order = response.data[0]
@@ -140,14 +110,12 @@ async def get_order_status(
             "cancelled": "Đã hủy",
         }
         
-        order_status = order.get("status", "unknown")
-
-        return OrderStatus(
-            id=str(order["id"]),
-            status=status_map.get(order_status, order_status),
-            total=_format_price(order.get("total_amount")),
-            createdAt=order.get("created_at", "")
-        )
+        return {
+            "id": str(order["id"]),
+            "status": status_map.get(order.get("status", "unknown"), order.get("status")),
+            "total": _format_price(order.get("total_amount")),
+            "createdAt": order.get("created_at", "")
+        }
     except Exception as e:
         print(f"[Tool] Order error: {e}")
         return None
@@ -155,7 +123,7 @@ async def get_order_status(
 @function_tool
 async def get_product_details(
     productId: str = Field(..., description='ID của sản phẩm')
-) -> Optional[ProductDetails]:
+) -> Optional[Dict]:
     """Lấy thông tin chi tiết của một sản phẩm cụ thể"""
     print(f"[Tool] Getting product details: {productId}")
     if not supabase:
@@ -170,13 +138,11 @@ async def get_product_details(
             .execute()
 
         if not response.data or len(response.data) == 0:
-            print(f"[Tool] Product lookup error: No data returned")
             return None
 
         product = response.data[0]
         images = product.get("images", [])
         
-        # Sort images
         images.sort(key=lambda img: (
             not img.get("is_primary", False),
             img.get("display_order", 999)
@@ -184,31 +150,34 @@ async def get_product_details(
         
         image_urls = [img["image_url"] for img in images]
 
-        return ProductDetails(
-            id=product["id"],
-            name=product["name"],
-            price=_format_price(product.get("price")),
-            priceRaw=product.get("price", 0),
-            stock=product.get("stock", 0),
-            url=f"{WEBSITE_URL}/products/{product.get('slug', '')}",
-            description=product.get("description"),
-            images=image_urls
-        )
+        return {
+            "id": product["id"],
+            "name": product["name"],
+            "price": _format_price(product.get("price")),
+            "priceRaw": product.get("price", 0),
+            "stock": product.get("stock", 0),
+            "url": f"{WEBSITE_URL}/products/{product.get('slug', '')}",
+            "description": product.get("description"),
+            "images": image_urls
+        }
     except Exception as e:
         print(f"[Tool] Product details error: {e}")
         return None
 
+# --- Define Model ---
+
+# LiteLLM Model cho Gemini
+gemini_model = LitellmModel(
+    model="gemini/gemini-2.0-flash-exp",
+    api_key=GEMINI_API_KEY
+)
+
 # --- Define Agents ---
-
-# Set OpenAI API key for agents
-os.environ["OPENAI_API_KEY"] = GEMINI_API_KEY
-os.environ["OPENAI_BASE_URL"] = "https://generativelanguage.googleapis.com/v1beta/openai/"
-
-GEMINI_MODEL = "gemini-2.0-flash-exp"
 
 bewoAgent = Agent(
     name='BeWo Fashion Assistant',
-    model=GEMINI_MODEL,
+    model=gemini_model,
+    model_settings=ModelSettings(include_usage=True),
     instructions="""
 Bạn là trợ lý ảo của BeWo Fashion - shop thời trang nữ cao cấp tại Việt Nam.
 
@@ -250,7 +219,8 @@ Bạn là trợ lý ảo của BeWo Fashion - shop thời trang nữ cao cấp t
 
 orderTrackingAgent = Agent(
     name='Order Tracking Agent',
-    model=GEMINI_MODEL,
+    model=gemini_model,
+    model_settings=ModelSettings(include_usage=True),
     instructions="""
 Bạn là chuyên viên tra cứu đơn hàng của BeWo Fashion.
 
@@ -270,7 +240,8 @@ QUY TRÌNH:
 
 triageAgent = Agent(
     name='Triage Agent',
-    model=GEMINI_MODEL,
+    model=gemini_model,
+    model_settings=ModelSettings(include_usage=True),
     instructions="""
 Bạn là bộ phận phân luồng yêu cầu của BeWo Fashion.
 
@@ -303,8 +274,12 @@ async def run_bewo_agent(
         result = await Runner.run(triageAgent, message)
 
         print("[Agent] Response generated successfully")
+        print(f"[Agent] Usage: {result.context_wrapper.usage}")
+        
         return result.final_output
         
     except Exception as e:
         print(f"[Agent] Error: {e}")
+        import traceback
+        traceback.print_exc()
         return "Xin lỗi chị, hệ thống đang bận. Vui lòng thử lại sau ít phút nhé! 🙏"
