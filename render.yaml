@@ -1,0 +1,26 @@
+services:
+  - type: web
+    name: bewo-chatbot-api
+    env: python
+    region: singapore
+    plan: free
+    branch: main
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn src.main:app --host 0.0.0.0 --port $PORT
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.11.0
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_SERVICE_KEY
+        sync: false
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: PORT
+        value: 10000
+      - key: NODE_ENV
+        value: production
+      - key: WEBSITE_URL
+        value: https://bewo.vn
+      - key: CORS_ORIGINS
+        value: https://bewo.vn,https://www.facebook.com
