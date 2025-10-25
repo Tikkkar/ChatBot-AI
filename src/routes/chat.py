@@ -1,15 +1,15 @@
 # ============================================
 # routes/chat.py
-# (Tương đương với src/routes/chat.ts)
 # ============================================
 
 from fastapi import APIRouter, HTTPException, Header
-from pydantic import BaseModel, Field
 from typing import Optional, Dict, Any
 from uuid import uuid4
+from fastapi.responses import JSONResponse
+
 from ..handlers.message_handler import handle_message
 from ..models.types import ChatRequest
-from fastapi.responses import JSONResponse
+
 # --- Khởi tạo Router ---
 router = APIRouter(
     prefix="/chat",
@@ -20,14 +20,12 @@ router = APIRouter(
 @router.post("/")
 async def handle_chat_message(
     chat_request: ChatRequest,
-    x_session_id: Optional[str] = Header(default=None, description="Header session ID cho khách vãng lai")
-) -> Dict[str, Any]:
+    x_session_id: Optional[str] = Header(default=None, alias="x-session-id")
+) -> JSONResponse:
     """
     Endpoint cho website chat.
     """
     try:
-        # FastAPI tự động validate 'message'
-        
         # 1. Xây dựng body cho handleMessage
         body: Dict[str, Any] = {
             "platform": "website",
@@ -46,12 +44,12 @@ async def handle_chat_message(
 
         # 3. Gọi handler chính
         result = await handle_message(body)
+        
+        # 4. Trả về kết quả với UTF-8
         return JSONResponse(
             content=result,
             media_type="application/json; charset=utf-8"
         )
-        # 4. Trả về kết quả
-        return result
 
     except Exception as error:
         print(f"[Chat] Error: {error}")
