@@ -285,7 +285,7 @@ async def save_address_standardized(
             .eq("id", profile["id"]) \
             .execute()
 
-        if update_response.error:
+        if update_response.data:
             print(f"❌ Error updating customer_profiles: {update_response.error}")
             return {
                 "success": False,

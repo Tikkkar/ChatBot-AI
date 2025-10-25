@@ -175,8 +175,8 @@ async def create_chatbot_order(data: OrderData) -> CreateOrderResult:
         order_response = supabase.from_("chatbot_orders") \
             .insert(order_payload) \
 
-        if order_response.error:
-            print(f"❌ Error creating chatbot order: {order_response.error}")
+        if order_response.data:
+            print(f"❌ Error creating chatbot order: {order_response.data}")
             return {
                 "success": False,
                 "error": order_response.error.message or "Lỗi khi tạo đơn hàng",

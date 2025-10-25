@@ -1,137 +1,199 @@
 # ============================================
-# services/context_service.py - FIXED
+# services/context_service.py - FIXED TO USE get_standardized_address
 # ============================================
 
-import asyncio
-from typing import List, Dict, Optional, Any
-from supabase import Client
+from typing import Dict, Any, Optional, List
+from ..utils.connect_supabase import get_supabase_client
 
+# Import services (sẽ cần implement)
 from .memory_service import load_customer_memory
 from .address_service import get_standardized_address
 
-def _get_image_sort_key(image: Dict[str, Any]) -> tuple:
-    """Hàm helper để sắp xếp hình ảnh"""
-    is_primary = image.get("is_primary", False)
-    display_order = image.get("display_order", 999)
-    return (not is_primary, display_order)
+
+# ========================================
+# STUB FUNCTIONS (Bạn thay bằng code thật)
+# ========================================
+
+async def load_customer_memory(conversation_id: str) -> Optional[Dict]:
+    """
+    (Stub) Load long-term memory của khách hàng
+    Returns: {
+        "profile": {...},
+        "interests": [...],
+        "facts": [...],
+        "summary": {...}
+    }
+    """
+    # TODO: Implement từ memoryService.ts
+    return None
+
+
+async def get_standardized_address(conversation_id: str) -> Optional[Dict]:
+    """
+    (Stub) Lấy địa chỉ đã chuẩn hóa từ customer_profiles
+    Returns: {
+        "address_line": str,
+        "ward": str,
+        "district": str,
+        "city": str,
+        "phone": str,
+        "full_name": str
+    }
+    """
+    # TODO: Implement từ addressService.ts
+    return None
+
+
+# ========================================
+# MAIN FUNCTION
+# ========================================
 
 async def build_context(
-    supabase: Client,
+    supabase: Any,
     conversation_id: str,
-    message: str,
+    message: str
 ) -> Dict[str, Any]:
+    """
+    Build context đầy đủ cho agent
     
+    Returns:
+    {
+        "customer": {...},
+        "profile": {...},
+        "saved_address": {...},
+        "history": [...],
+        "products": [...],
+        "memory_facts": [...],
+        "previous_summary": str
+    }
+    """
     context: Dict[str, Any] = {}
 
-    try:
-        # ========================================
-        # 1. GET CONVERSATION INFO
-        # ========================================
-        # ✅ FIX: Bỏ .maybe_single(), dùng .limit(1)
-        conv_resp = supabase \
-            .from_("chatbot_conversations") \
-            .select("*") \
-            .eq("id", conversation_id) \
-            .limit(1) \
-            .execute()
+    # ========================================
+    # 1. GET CONVERSATION INFO
+    # ========================================
+    conv_resp = supabase.from_("chatbot_conversations") \
+        .select("*") \
+        .eq("id", conversation_id) \
+        .limit(1) \
+        .execute()
+
+    if conv_resp.data and len(conv_resp.data) > 0:
+        conv = conv_resp.data[0]
+        context["customer"] = {
+            "name": conv.get("customer_name") or "Guest",
+            "phone": conv.get("customer_phone") or ""
+        }
+    else:
+        context["customer"] = {"name": "Guest", "phone": ""}
+
+    # ========================================
+    # 2. LOAD LONG-TERM MEMORY
+    # ========================================
+    memory = await load_customer_memory(conversation_id)
+
+    if memory:
+        context["profile"] = memory.get("profile",{})
+        context["interests"] = memory.get("interests", [])
+        context["memory_facts"] = memory.get("facts", [])
         
-        # ✅ FIX: Lấy phần tử đầu tiên
-        conv = None
-        if conv_resp.data and len(conv_resp.data) > 0:
-            conv = conv_resp.data[0]
+        summary = memory.get("summary")
+        if summary:
+            context["previous_summary"] = summary.get("summary_text")
+            context["key_points"] = summary.get("key_points", [])
+    else:
+        context["profile"] = {}
+        context["interests"] = []
+        context["memory_facts"] = []
+        context["previous_summary"] = {}
+        context["key_points"] = []
 
-        if conv:
-            context["customer"] = {
-                "name": conv.get("customer_name") or "Guest",
-                "phone": conv.get("customer_phone") or "",
-            }
+    # ========================================
+    # 3. LOAD SAVED ADDRESS - ✅ FIXED
+    # ========================================
+    saved_address = await get_standardized_address(conversation_id)
 
-        # ========================================
-        # 2. LOAD LONG-TERM MEMORY
-        # ========================================
-        memory = await load_customer_memory(conversation_id)
+    if saved_address:
+        context["saved_address"] = saved_address
+        print(f"📍 Loaded address from customer_profiles (structured): {saved_address.get('address_line')}")
+    else:
+        context["saved_address"] = {}
+        print("⚠️ No saved address found")
 
-        if memory:
-            context["profile"] = memory.get("profile")
-            context["interests"] = memory.get("interests", [])
-            context["memory_facts"] = memory.get("facts", [])
-            
-            previous_summary = memory.get("summary")
-            if previous_summary:
-                context["previous_summary"] = previous_summary.get("summary_text")
-                context["key_points"] = previous_summary.get("key_points")
-            else:
-                context["previous_summary"] = None
-                context["key_points"] = []
+    # ========================================
+    # 4. GET RECENT MESSAGES (10 tin cuối)
+    # ========================================
+    msg_resp = supabase.from_("chatbot_messages") \
+        .select("sender_type, content, created_at") \
+        .eq("conversation_id", conversation_id) \
+        .order("created_at", desc=False) \
+        .limit(10) \
+        .execute()
 
-        # ========================================
-        # 3. LOAD SAVED ADDRESS
-        # ========================================
-        saved_address = await get_standardized_address(conversation_id)
+    context["history"] = msg_resp.data or []
 
-        if saved_address:
-            context["saved_address"] = saved_address
-            print(f"📍 Loaded address: {saved_address.get('address_line')}")
-        else:
-            context["saved_address"] = None
-            print("⚠️ No saved address found")
+    # ========================================
+    # 5. GET PRODUCTS
+    # ========================================
+    prod_resp = supabase.from_("products") \
+        .select("""
+            id, name, price, stock, slug, description,
+            images:product_images(image_url, is_primary, display_order)
+        """) \
+        .eq("is_active", True) \
+        .order("created_at", desc=True) \
+        .limit(20) \
+        .execute()
 
-        # ========================================
-        # 4. GET RECENT MESSAGES (10 tin cuối)
-        # ========================================
-        messages_resp = supabase \
-            .from_("chatbot_messages") \
-            .select("sender_type, content, created_at") \
-            .eq("conversation_id", conversation_id) \
-            .order("created_at", desc=False) \
-            .limit(10) \
-            .execute()
+    products = prod_resp.data or []
 
-        context["history"] = messages_resp.data or []
+    # Sort images: primary first, then by display_order
+    for p in products:
+        if p.get("images"):
+            p["images"].sort(key=lambda img: (
+                not img.get("is_primary", False),
+                img.get("display_order", 999)
+            ))
 
-        # ========================================
-        # 5. GET PRODUCTS
-        # ========================================
-        products_resp = supabase \
-            .from_("products") \
-            .select("""
-                id, name, price, stock, slug, description,
-                images:product_images(image_url, is_primary, display_order)
-            """) \
-            .eq("is_active", True) \
-            .order("created_at", desc=True)\
-            .limit(20) \
-            .execute()
+    context["products"] = products
 
-        products = products_resp.data or []
-        
-        # Sắp xếp hình ảnh
-        for p in products:
-            if p.get("images"):
-                p["images"].sort(key=_get_image_sort_key)
+    # # ========================================
+    # # 6. GET CART (if exists)
+    # # ========================================
+    # cart_resp = supabase.from_("cart_items") \
+    #     .select("""
+    #         id, product_id, quantity, size,
+    #         product:products(name, price)
+    #     """) \
+    #     .eq("conversation_id", conversation_id) \
+    #     .execute()
 
-        context["products"] = products
+    # if cart_resp.data:
+    #     context["cart"] = [
+    #         {
+    #             "id": item["id"],
+    #             "product_id": item["product_id"],
+    #             "name": item.get("product", {}).get("name", "Unknown"),
+    #             "price": item.get("product", {}).get("price", 0),
+    #             "quantity": item["quantity"],
+    #             "size": item.get("size")
+    #         }
+    #         for item in cart_resp.data
+    #     ]
+    # else:
+    #     context["cart"] = []
 
-        # ========================================
-        # 6. DEBUG LOG
-        # ========================================
-        address_line_log = "none"
-        if context.get("saved_address") and context["saved_address"].get("address_line"):
-             address_line_log = context["saved_address"]["address_line"]
-       
-        print("📊 Context Summary:", {
-            "hasProfile": bool(context.get("profile")),
-            "hasSavedAddress": bool(context.get("saved_address")),
-            "addressLine": address_line_log,
-            "historyCount": len(context.get("history", [])),
-            "productCount": len(context.get("products", [])),
-            "memoryFactsCount": len(context.get("memory_facts", [])),
-        })
+    # ========================================
+    # 7. DEBUG LOG
+    # ========================================
+    print("📊 Context Summary:", {
+        "hasProfile": bool(context.get("profile")),
+        "hasSavedAddress": bool(context.get("saved_address")),
+        "addressLine": context.get("saved_address", {}).get("address_line", "none"),
+        "historyCount": len(context.get("history", [])),
+        "productCount": len(context.get("products", [])),
+        "cartCount": len(context.get("cart", [])),
+        "memoryFactsCount": len(context.get("memory_facts", []))
+    })
 
-        return context
-
-    except Exception as e:
-        print(f"❌ Error building context: {e}")
-        import traceback
-        traceback.print_exc()
-        return context
+    return context
