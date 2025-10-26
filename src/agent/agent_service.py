@@ -1,14 +1,22 @@
 # ============================================
-# agent/agent_service.py - Multi-Agent Architecture
+# agent/agent_service_updated.py - Multi-Agent Architecture (UPDATED)
 # ============================================
 
 import os
 import json
 from typing import List, Dict, Any, Optional
 from pydantic import Field
-from ..utils.prompts import get_system_prompt
 from dotenv import load_dotenv
 from pathlib import Path
+
+# Import prompts
+from ..utils.prompts import (
+    get_product_consultant_prompt,
+    get_order_manager_prompt,
+    get_support_agent_prompt,
+    get_triage_agent_prompt,
+    build_full_prompt_with_context
+)
 
 # Load env
 project_root = Path(__file__).resolve().parent.parent.parent
@@ -190,56 +198,109 @@ async def get_order_status(
 
 
 # ============================================
-# TOOLS - Cart Management
+# TOOLS - Cart & Customer Management
 # ============================================
 
 @function_tool
-async def get_cart(
-    conversationId: str = Field(..., description='ID của conversation')
+async def save_customer_info(
+    conversationId: str = Field(..., description='ID của conversation'),
+    full_name: Optional[str] = Field(None, description='Tên đầy đủ'),
+    preferred_name: Optional[str] = Field(None, description='Tên gọi thân mật'),
+    phone: Optional[str] = Field(None, description='Số điện thoại'),
+    style_preference: Optional[List[str]] = Field(None, description='Phong cách yêu thích'),
+    usual_size: Optional[str] = Field(None, description='Size thường mặc')
 ) -> Dict[str, Any]:
-    """Xem giỏ hàng hiện tại"""
-    print(f"[Tool] get_cart: conversationId={conversationId}")
+    """Lưu thông tin cơ bản của khách hàng"""
+    print(f"[Tool] save_customer_info: conversationId={conversationId}")
     
-    if not supabase:
-        return {"items": [], "total": 0}
-    
-    try:
-        response = supabase.from_("cart_items") \
-            .select("*, product:products(name, price)") \
-            .eq("conversation_id", conversationId) \
-            .execute()
-        
-        items = []
-        total = 0
-        
-        for item in response.data or []:
-            price = item.get("product", {}).get("price", 0)
-            quantity = item.get("quantity", 1)
-            subtotal = price * quantity
-            total += subtotal
-            
-            items.append({
-                "id": item["id"],
-                "name": item.get("product", {}).get("name", "Unknown"),
-                "price": _format_price(price),
-                "quantity": quantity,
-                "size": item.get("size"),
-                "subtotal": _format_price(subtotal)
-            })
-        
-        result = {
-            "items": items,
-            "total": _format_price(total),
-            "totalRaw": total,
-            "count": len(items)
+    # TODO: Implement logic to save customer info to database
+    # For now, return success message
+    return {
+        "success": True,
+        "message": "Đã lưu thông tin khách hàng",
+        "data": {
+            "full_name": full_name,
+            "preferred_name": preferred_name,
+            "phone": phone,
+            "style_preference": style_preference,
+            "usual_size": usual_size
         }
-        
-        print(f"[Tool] get_cart: {len(items)} items, total={_format_price(total)}")
-        return result
-        
-    except Exception as e:
-        print(f"[Tool] get_cart ERROR: {e}")
-        return {"items": [], "total": 0}
+    }
+
+
+@function_tool
+async def save_address(
+    conversationId: str = Field(..., description='ID của conversation'),
+    address_line: str = Field(..., description='Số nhà + Tên đường'),
+    city: str = Field(..., description='Thành phố'),
+    district: Optional[str] = Field(None, description='Quận/Huyện'),
+    ward: Optional[str] = Field(None, description='Phường/Xã'),
+    phone: Optional[str] = Field(None, description='SĐT người nhận'),
+    full_name: Optional[str] = Field(None, description='Tên người nhận')
+) -> Dict[str, Any]:
+    """Lưu địa chỉ giao hàng"""
+    print(f"[Tool] save_address: {address_line}, {city}")
+    
+    # TODO: Implement logic to save address to database
+    # For now, return success message
+    return {
+        "success": True,
+        "message": "Đã lưu địa chỉ giao hàng",
+        "data": {
+            "address_line": address_line,
+            "ward": ward,
+            "district": district,
+            "city": city,
+            "phone": phone,
+            "full_name": full_name
+        }
+    }
+
+
+@function_tool
+async def add_to_cart(
+    conversationId: str = Field(..., description='ID của conversation'),
+    product_id: str = Field(..., description='ID của sản phẩm'),
+    size: str = Field(default="M", description='Size sản phẩm'),
+    quantity: int = Field(default=1, description='Số lượng')
+) -> Dict[str, Any]:
+    """Thêm sản phẩm vào giỏ hàng"""
+    print(f"[Tool] add_to_cart: product_id={product_id}, size={size}, quantity={quantity}")
+    
+    # TODO: Implement logic to add to cart in database
+    # For now, return success message
+    return {
+        "success": True,
+        "message": f"Đã thêm {quantity} sản phẩm vào giỏ hàng",
+        "data": {
+            "product_id": product_id,
+            "size": size,
+            "quantity": quantity
+        }
+    }
+
+
+@function_tool
+async def confirm_and_create_order(
+    conversationId: str = Field(..., description='ID của conversation'),
+    confirmed: bool = Field(True, description='Khách đã xác nhận đặt hàng')
+) -> Dict[str, Any]:
+    """Xác nhận và tạo đơn hàng"""
+    print(f"[Tool] confirm_and_create_order: confirmed={confirmed}")
+    
+    if not confirmed:
+        return {
+            "success": False,
+            "message": "Khách chưa xác nhận đặt hàng"
+        }
+    
+    # TODO: Implement logic to create order in database
+    # For now, return success message
+    return {
+        "success": True,
+        "message": "Đã tạo đơn hàng thành công",
+        "order_id": "ORD-" + conversationId[:8].upper()
+    }
 
 
 # ============================================
@@ -260,9 +321,9 @@ productAgent = Agent(
     name='Product Consultant',
     model=gemini_model,
     model_settings=ModelSettings(include_usage=True),
-    instructions= get_system_prompt,
+    instructions=get_product_consultant_prompt(),
     tools=[search_products, get_product_details],
-    handoff_description='Chuyên gia tư vấn sản phẩm thời trang'
+    handoff_description='Chuyên gia tư vấn sản phẩm thời trang của BeWo'
 )
 
 
@@ -274,30 +335,14 @@ orderAgent = Agent(
     name='Order Manager',
     model=gemini_model,
     model_settings=ModelSettings(include_usage=True),
-    instructions="""
-Bạn là chuyên viên xử lý đơn hàng của BeWo Fashion.
-
-# NHIỆM VỤ CHÍNH:
-1. Tra cứu trạng thái đơn hàng
-2. Xem giỏ hàng
-3. Hướng dẫn khách đặt hàng
-
-# QUY TRÌNH TRA ĐƠN:
-1. Hỏi mã đơn hàng nếu chưa có
-2. Gọi tool: `get_order_status(orderId="12345")`
-3. Thông báo trạng thái rõ ràng
-
-# QUY TRÌNH XEM GIỎ HÀNG:
-1. Gọi tool: `get_cart(conversationId="...")`
-2. Hiển thị danh sách sản phẩm + tổng tiền
-3. Hỏi khách có muốn chốt đơn không
-
-# PHONG CÁCH:
-- Chuyên nghiệp, rõ ràng
-- Thông báo chính xác về trạng thái, thời gian
-- Gọi khách là "chị"
-""",
-    tools=[get_order_status, get_cart],
+    instructions=get_order_manager_prompt(),
+    tools=[
+        get_order_status,
+        save_customer_info,
+        save_address,
+        add_to_cart,
+        confirm_and_create_order
+    ],
     handoff_description='Chuyên viên quản lý đơn hàng'
 )
 
@@ -310,30 +355,7 @@ supportAgent = Agent(
     name='Customer Support',
     model=gemini_model,
     model_settings=ModelSettings(include_usage=True),
-    instructions="""
-Bạn là nhân viên hỗ trợ của BeWo Fashion.
-
-# NHIỆM VỤ CHÍNH:
-1. Trả lời câu hỏi về chính sách (shipping, return, payment)
-2. Hỗ trợ thắc mắc chung
-3. Chào hỏi khách hàng
-
-# THÔNG TIN CHÍNH SÁCH:
-🚚 **Giao hàng:** Toàn quốc 1-4 ngày, phí 30k (miễn phí từ 300k)
-🔄 **Đổi trả:** 7 ngày nếu còn nguyên tem, chưa qua sử dụng
-💳 **Thanh toán:** COD - Kiểm tra hàng trước khi thanh toán
-
-# PHONG CÁCH:
-- Thân thiện, lịch sự
-- Giải thích rõ ràng, dễ hiểu
-- Gọi khách là "chị"
-- Emoji: 🌷 💕 ✨
-
-# CHÀO HỎI:
-"Dạ em chào chị ạ 🌷
-Em là Phương của BeWo 💕
-Chị cần em tư vấn gì ạ?"
-""",
+    instructions=get_support_agent_prompt(),
     tools=[],
     handoff_description='Nhân viên hỗ trợ khách hàng'
 )
@@ -347,44 +369,7 @@ triageAgent = Agent(
     name='BeWo Assistant',
     model=gemini_model,
     model_settings=ModelSettings(include_usage=True),
-    instructions="""
-Bạn là trợ lý chính của BeWo Fashion, phân tích yêu cầu và điều phối đến agent phù hợp.
-
-# NHIỆM VỤ:
-Phân tích ý định khách hàng và chuyển đến agent chuyên trách.
-
-# QUY TẮC PHÂN LUỒNG:
-
-## 1. TƯ VẤN SẢN PHẨM → Product Consultant
-Trigger:
-- "có [sản phẩm] nào không?"
-- "cho xem [sản phẩm]"
-- "tìm [sản phẩm]"
-- "gợi ý [sản phẩm]"
-- "giá bao nhiêu?"
-- "[sản phẩm] có màu gì?"
-
-## 2. ĐƠN HÀNG → Order Manager
-Trigger:
-- "đơn hàng [mã]"
-- "kiểm tra đơn"
-- "đặt hàng"
-- "giỏ hàng"
-- "chốt đơn"
-
-## 3. HỖ TRỢ → Support Agent
-Trigger:
-- "chào"
-- "ship bao lâu?"
-- "đổi trả như thế nào?"
-- "thanh toán thế nào?"
-- Các câu hỏi chung về policy
-
-# LƯU Ý:
-- KHÔNG trả lời trực tiếp
-- CHỈ phân tích và chuyển hướng
-- Nếu không rõ → Chuyển Support Agent
-""",
+    instructions=get_triage_agent_prompt(),
     handoffs=[productAgent, orderAgent, supportAgent]
 )
 
@@ -399,6 +384,10 @@ async def run_bewo_agent(
 ) -> Dict[str, Any]:
     """
     Chạy multi-agent system để xử lý tin nhắn
+    
+    Args:
+        message: Tin nhắn của user
+        context: Context bao gồm history, products, cart, profile, etc.
     
     Returns:
     {
@@ -482,3 +471,52 @@ async def run_bewo_agent(
             "type": "conversational",
             "functionCalls": []
         }
+
+
+# ============================================
+# EXAMPLE USAGE WITH CONTEXT
+# ============================================
+
+async def run_with_context_example():
+    """Ví dụ sử dụng với context"""
+    
+    # Mock context data
+    context = {
+        "profile": {
+            "preferred_name": "Lan",
+            "phone": "0987654321",
+            "usual_size": "M",
+            "style_preference": ["thanh lịch", "sang trọng"],
+            "total_orders": 3
+        },
+        "saved_address": {
+            "address_line": "123 Nguyễn Trãi",
+            "ward": "Phường Thanh Xuân Trung",
+            "district": "Quận Thanh Xuân",
+            "city": "Hà Nội",
+            "phone": "0987654321"
+        },
+        "history": [
+            {"sender_type": "customer", "content": {"text": "Chào shop"}},
+            {"sender_type": "bot", "content": {"text": "Dạ chào chị Lan ạ 🌷"}},
+            {"sender_type": "customer", "content": {"text": "Cho em xem áo vest"}}
+        ],
+        "products": [],
+        "cart": []
+    }
+    
+    # Test message
+    message = "Cho em xem áo vest thanh lịch đi làm"
+    
+    # Run agent
+    result = await run_bewo_agent(message, context)
+    
+    print("\n" + "="*60)
+    print("RESULT:")
+    print(json.dumps(result, indent=2, ensure_ascii=False))
+    print("="*60)
+
+
+if __name__ == "__main__":
+    import asyncio
+    asyncio.run(run_with_context_example())
