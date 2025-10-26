@@ -286,7 +286,6 @@ async def save_address_standardized(
             .execute()
 
         if update_response.data:
-            print(f"❌ Error updating customer_profiles: {update_response.error}")
             return {
                 "success": False,
                 "message": "Lỗi khi lưu địa chỉ",

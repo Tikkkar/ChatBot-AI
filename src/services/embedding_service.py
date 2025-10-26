@@ -1,11 +1,12 @@
 # ============================================
-# Embedding Service - Clean Version
+# Embedding Service - Fixed Version
 # File: services/embedding_service.py
 # ============================================
 
 from datetime import datetime, timezone
 from typing import List, Dict, Optional, Any, TypedDict
 from supabase import Client
+from postgrest.exceptions import APIError
 
 # Giả định bạn có hàm create_supabase_client trong connect_supabase.py
 from ..utils.connect_supabase import create_supabase_client
@@ -70,6 +71,7 @@ async def create_message_embedding(
         }
 
         # Insert into conversation_embeddings
+        # Supabase Python sẽ throw exception nếu có lỗi, không có .error attribute
         insert_resp = supabase.from_("conversation_embeddings") \
             .insert({
                 "conversation_id": conversation_id,
@@ -80,13 +82,11 @@ async def create_message_embedding(
             }) \
             .execute()
 
-        if insert_resp.error:
-            print(f"❌ Error creating embedding: {insert_resp.error}")
-            # Don't throw - embedding creation shouldn't block main flow
-            return
-
         print(f"✅ Created embedding for message {message_id[:8]}...")
     
+    except APIError as api_error:
+        print(f"❌ API Error creating embedding: {api_error}")
+        # Don't throw - embedding creation shouldn't block main flow
     except Exception as error:
         print(f"❌ create_message_embedding failed: {error}")
         # Silent fail - don't break the chat flow
@@ -120,9 +120,6 @@ async def create_summary_embedding(
             }) \
             .execute()
 
-        if summary_resp.error:
-            print(f"❌ Error creating summary embedding: {summary_resp.error}")
-
         # Insert embeddings for each key point
         if key_points:
             fact_embeddings = [{
@@ -142,6 +139,8 @@ async def create_summary_embedding(
 
         print(f"✅ Created summary embeddings ({len(key_points)} facts)")
     
+    except APIError as api_error:
+        print(f"❌ API Error creating summary embedding: {api_error}")
     except Exception as error:
         print(f"❌ create_summary_embedding failed: {error}")
 
@@ -159,7 +158,6 @@ async def search_similar_messages(
 
         # For now, use simple text search
         # TODO: Implement vector similarity search when pgvector is enabled
-        # .text_search() là .textSearch() trong JS
         search_resp = supabase.from_("conversation_embeddings") \
             .select("*") \
             .eq("conversation_id", conversation_id) \
@@ -171,12 +169,11 @@ async def search_similar_messages(
             .limit(limit) \
             .execute()
 
-        if search_resp.error:
-            print(f"❌ Error searching embeddings: {search_resp.error}")
-            return []
-
         return search_resp.data or []
     
+    except APIError as api_error:
+        print(f"❌ API Error searching embeddings: {api_error}")
+        return []
     except Exception as error:
         print(f"❌ search_similar_messages failed: {error}")
         return []
@@ -199,7 +196,7 @@ async def get_recent_context(
             .limit(limit) \
             .execute()
 
-        if context_resp.error or not context_resp.data:
+        if not context_resp.data:
             return ""
 
         # Reverse to get chronological order
@@ -220,6 +217,9 @@ async def get_recent_context(
 
         return "\n".join(context_parts)
     
+    except APIError as api_error:
+        print(f"❌ API Error getting recent context: {api_error}")
+        return ""
     except Exception as error:
         print(f"❌ get_recent_context failed: {error}")
         return ""

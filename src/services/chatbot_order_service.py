@@ -179,7 +179,6 @@ async def create_chatbot_order(data: OrderData) -> CreateOrderResult:
             print(f"❌ Error creating chatbot order: {order_response.data}")
             return {
                 "success": False,
-                "error": order_response.error.message or "Lỗi khi tạo đơn hàng",
                 "orderSummary": None,
             }
 

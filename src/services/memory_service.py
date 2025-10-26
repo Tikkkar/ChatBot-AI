@@ -65,7 +65,6 @@ async def get_or_create_profile(conversation_id: str) -> Optional[str]:
         }).execute()
 
         if not response.data:
-            print(f"Error getting profile: {response.error}")
             return None
 
         # RPC có thể trả về một mảng hoặc một đối tượng đơn lẻ
