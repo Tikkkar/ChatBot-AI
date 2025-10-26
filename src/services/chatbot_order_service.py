@@ -264,8 +264,8 @@ async def update_product_stock(
             .single() \
             .execute()
 
-        if product_resp.error:
-            print(f"⚠️ Product not found for stock update: {product_id}. Error: {product_resp.error}")
+        if not product_resp.data:
+            print(f"⚠️ Product not found for stock update: {product_id}.")
             return # Non-blocking
 
         if product_resp.data:
@@ -277,8 +277,8 @@ async def update_product_stock(
                 .eq("id", product_id) \
                 .execute()
                 
-            if update_resp.error:
-                print(f"❌ Failed to update product stock: {update_resp.error}")
+            if update_resp.data:
+                print(f"❌ Failed to update product stock: {update_resp.data}")
 
         # Update size-specific stock
         if size and size != "One Size":
@@ -289,7 +289,7 @@ async def update_product_stock(
                 .single() \
                 .execute()
 
-            if not size_resp.error and size_resp.data:
+            if not size_resp.data and size_resp.data:
                 current_size_stock = size_resp.data.get("stock", 0)
                 new_size_stock = max(0, current_size_stock - quantity)
                 
@@ -298,7 +298,7 @@ async def update_product_stock(
                     .eq("product_id", product_id) \
                     .eq("size", size) \
                     .execute()
-            elif size_resp.error:
+            elif size_resp.data:
                  print(f"⚠️ Product size not found for stock update: {product_id} (Size: {size})")
 
 

@@ -142,8 +142,8 @@ async def extract_preferences(
             .single() \
             .execute()
 
-        if profile_resp.error or not profile_resp.data:
-            print(f"Failed to get profile for preferences: {profile_resp.error}")
+        if not profile_resp.data:
+            print(f"Failed to get profile for preferences: {profile_resp}")
             return
 
         profile = profile_resp.data
@@ -446,7 +446,7 @@ async def create_conversation_summary(conversation_id: str) -> None:
             .order("created_at", ascending=True) \
             .execute()
 
-        if messages_resp.error or not messages_resp.data or len(messages_resp.data) < 5:
+        if  not messages_resp.data or len(messages_resp.data) < 5:
             print("Not enough messages to summarize.")
             return
 
@@ -544,7 +544,7 @@ async def load_customer_memory(conversation_id: str) -> Optional[Dict[str, Any]]
             .maybe_single() \
             .execute()
 
-        if profile_resp.error or not profile_resp.data:
+        if not profile_resp.data:
             print("No profile found for memory load.")
             return None
         

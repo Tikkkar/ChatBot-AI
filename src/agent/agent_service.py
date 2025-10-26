@@ -411,16 +411,13 @@ async def run_bewo_agent(
         if hasattr(result, 'context_wrapper') and result.context_wrapper:
             print(f"[Agent] Run completed: {result.run.id if hasattr(result, 'run') else 'N/A'}")
             
-            for idx, run in enumerate(result.context_wrapper.runs):
+            # ✅ FIX: Access single run instead of iterating runs
+            if hasattr(result, 'run') and result.run:
+                run = result.run
                 for msg in run.messages:
                     if hasattr(msg, 'tool_calls') and msg.tool_calls:
-                        print(f"[Agent] 🔧 Found {len(msg.tool_calls)} tool call(s) in run {idx}")
-                        # Debug result structure
-                        print(f"[DEBUG] Result type: {type(result)}")
-                        print(f"[DEBUG] Result attributes: {dir(result)}")
-                        if hasattr(result, 'context_wrapper'):
-                            print(f"[DEBUG] Context wrapper type: {type(result.context_wrapper)}")
-                            print(f"[DEBUG] Context wrapper attributes: {dir(result.context_wrapper)}")
+                        print(f"[Agent] 🔧 Found {len(msg.tool_calls)} tool call(s)")
+                        
                         for tool_call in msg.tool_calls:
                             tool_name = tool_call.function.name
                             tool_args = json.loads(tool_call.function.arguments)

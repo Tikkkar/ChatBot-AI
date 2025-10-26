@@ -79,8 +79,8 @@ async def save_customer_profile(
             .single() \
             .execute()
 
-        if profile_resp.error or not profile_resp.data:
-            print(f"❌ Error fetching profile: {profile_resp.error}")
+        if not profile_resp.data:
+            print(f"❌ Error fetching profile")
             return {
                 "success": False,
                 "message": "Không tìm thấy profile khách hàng",
@@ -115,8 +115,8 @@ async def save_customer_profile(
             .eq("id", profile["id"]) \
             .execute()
 
-        if update_resp.error:
-            raise update_resp.error
+        if update_resp.data:
+            raise update_resp.data
 
         # Save as memory fact
         fact_text = _build_fact_text(data)

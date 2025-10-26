@@ -6,7 +6,7 @@ import re
 import asyncio
 from typing import Dict, Any, Optional, List
 from supabase import Client
-
+from postgrest.exceptions import APIError
 # --- 1. Import Services ---
 
 try:
@@ -120,16 +120,15 @@ async def handle_order_creation(body: Dict[str, Any]) -> Dict[str, Any]:
             .eq("conversation_id", conversation_id) \
             .single() \
             .execute()
-
-        if profile_resp.error or not profile_resp.data:
-            print(f"❌ Profile not found: {profile_resp.error}")
+        
+        if not profile_resp.data:
+            print("No profile found for memory load.")
             return {
                 "success": False,
                 "message": "Dạ em chưa lưu được thông tin của chị. Chị vui lòng cho em tên và số điện thoại nhé 💕",
             }
         
         profile = profile_resp.data
-
         # Check if profile has required info
         if not profile.get("full_name") and not profile.get("preferred_name"):
             return {

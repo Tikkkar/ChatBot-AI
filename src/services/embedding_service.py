@@ -70,8 +70,6 @@ async def create_message_embedding(
             "created_at": datetime.now(timezone.utc).isoformat(),
         }
 
-        # Insert into conversation_embeddings
-        # Supabase Python sẽ throw exception nếu có lỗi, không có .error attribute
         insert_resp = supabase.from_("conversation_embeddings") \
             .insert({
                 "conversation_id": conversation_id,
