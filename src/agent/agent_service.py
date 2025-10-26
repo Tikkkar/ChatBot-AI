@@ -8,14 +8,12 @@ from typing import List, Dict, Any, Optional
 from pydantic import Field
 from dotenv import load_dotenv
 from pathlib import Path
-
-# Import prompts
-from ..utils.prompts import (
+from ..utils.prompts_main import (
+    get_triage_agent_prompt,
     get_product_consultant_prompt,
     get_order_manager_prompt,
     get_support_agent_prompt,
-    get_triage_agent_prompt,
-    build_full_prompt_with_context
+    build_agent_prompt_with_context
 )
 
 # Load env
