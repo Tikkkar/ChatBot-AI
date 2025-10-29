@@ -1,19 +1,23 @@
 # ============================================
-# agent/agent_service_updated.py - Multi-Agent Architecture (UPDATED)
+# agent/agent_service_improved.py - IMPROVED Multi-Agent Architecture
+# Bổ sung các tính năng còn thiếu từ bản TypeScript
 # ============================================
 
 import os
 import json
+import re
 from typing import List, Dict, Any, Optional
 from pydantic import Field
 from dotenv import load_dotenv
 from pathlib import Path
-from ..utils.prompts_main import (
-    get_triage_agent_prompt,
+
+# Import prompts - SỬ DỤNG PROMPTS MỚI
+from ..utils.prompts import (
     get_product_consultant_prompt,
     get_order_manager_prompt,
     get_support_agent_prompt,
-    build_agent_prompt_with_context
+    get_triage_agent_prompt,
+    build_full_prompt_with_context
 )
 
 # Load env
@@ -33,6 +37,65 @@ from agents.extensions.models.litellm_model import LitellmModel
 from ..utils.connect_supabase import get_supabase_client
 
 supabase = get_supabase_client()
+
+
+# ============================================
+# VALIDATION FUNCTIONS (THIẾU Ở BẢN CŨ)
+# ============================================
+
+def validate_address_function_call(args: dict) -> bool:
+    """
+    Validate address arguments trước khi execute
+    Tương đương validateAddressFunctionCall() trong TypeScript
+    """
+    # 1. Check address_line exists
+    if not args.get("address_line"):
+        print("⚠️ save_address: Missing address_line")
+        return False
+    
+    address_line = args["address_line"]
+    
+    # 2. Check if address_line có số nhà và tên đường
+    if not re.match(r'^\d+[A-Z]?\s+.+', address_line):
+        print(f"⚠️ save_address: Invalid address_line format: {address_line}")
+        return False
+    
+    # 3. Check if address_line is only numbers
+    if re.match(r'^[\d\s]+$', address_line):
+        print(f"⚠️ save_address: address_line is only numbers: {address_line}")
+        return False
+    
+    # 4. Validate city
+    if not args.get("city"):
+        print("⚠️ save_address: Missing city")
+        return False
+    
+    # 5. Check if address_line looks like product description
+    product_keywords = ["cao cấp", "lớp", "set", "vest", "quần", "áo"]
+    if any(keyword in address_line.lower() for keyword in product_keywords):
+        print(f"⚠️ save_address: address_line looks like product description: {address_line}")
+        return False
+    
+    print("✅ save_address validation passed")
+    return True
+
+
+def validate_customer_info_function_call(args: dict) -> bool:
+    """Validate customer info trước khi execute"""
+    # Check if có ít nhất 1 thông tin hữu ích
+    if not args.get("full_name") and not args.get("preferred_name") and not args.get("phone"):
+        print("⚠️ save_customer_info: No useful data provided")
+        return False
+    
+    # Validate phone format nếu có
+    if args.get("phone"):
+        phone = args["phone"]
+        if not re.match(r'^[0+][\d]{9,11}$', phone):
+            print(f"⚠️ save_customer_info: Invalid phone format: {phone}")
+            return False
+    
+    print("✅ save_customer_info validation passed")
+    return True
 
 
 # ============================================
@@ -158,7 +221,6 @@ async def get_order_status(
         return None
 
     try:
-        import re
         cleaned_order_id = re.sub(r'\D', '', orderId)
         
         response = supabase.from_("orders") \
@@ -237,7 +299,7 @@ async def save_address(
     full_name: Optional[str] = Field(None, description='Tên người nhận')
 ) -> Dict[str, Any]:
     """Lưu địa chỉ giao hàng"""
-    print(f"[Tool] save_address: {address_line}, {city}")
+    print(f"[Tool] save_address: conversationId={conversationId}")
     
     # TODO: Implement logic to save address to database
     # For now, return success message
@@ -258,18 +320,18 @@ async def save_address(
 @function_tool
 async def add_to_cart(
     conversationId: str = Field(..., description='ID của conversation'),
-    product_id: str = Field(..., description='ID của sản phẩm'),
+    product_id: str = Field(..., description='UUID của sản phẩm'),
     size: str = Field(default="M", description='Size sản phẩm'),
     quantity: int = Field(default=1, description='Số lượng')
 ) -> Dict[str, Any]:
     """Thêm sản phẩm vào giỏ hàng"""
     print(f"[Tool] add_to_cart: product_id={product_id}, size={size}, quantity={quantity}")
     
-    # TODO: Implement logic to add to cart in database
+    # TODO: Implement logic to add product to cart
     # For now, return success message
     return {
         "success": True,
-        "message": f"Đã thêm {quantity} sản phẩm vào giỏ hàng",
+        "message": f"Đã thêm sản phẩm vào giỏ hàng",
         "data": {
             "product_id": product_id,
             "size": size,
@@ -281,7 +343,7 @@ async def add_to_cart(
 @function_tool
 async def confirm_and_create_order(
     conversationId: str = Field(..., description='ID của conversation'),
-    confirmed: bool = Field(True, description='Khách đã xác nhận đặt hàng')
+    confirmed: bool = Field(..., description='Xác nhận đặt hàng')
 ) -> Dict[str, Any]:
     """Xác nhận và tạo đơn hàng"""
     print(f"[Tool] confirm_and_create_order: confirmed={confirmed}")
@@ -312,7 +374,7 @@ gemini_model = LitellmModel(
 
 
 # ============================================
-# AGENT 1: PRODUCT CONSULTANT AGENT
+# DEFINE AGENTS
 # ============================================
 
 productAgent = Agent(
@@ -323,11 +385,6 @@ productAgent = Agent(
     tools=[search_products, get_product_details],
     handoff_description='Chuyên gia tư vấn sản phẩm thời trang của BeWo'
 )
-
-
-# ============================================
-# AGENT 2: ORDER MANAGEMENT AGENT
-# ============================================
 
 orderAgent = Agent(
     name='Order Manager',
@@ -344,11 +401,6 @@ orderAgent = Agent(
     handoff_description='Chuyên viên quản lý đơn hàng'
 )
 
-
-# ============================================
-# AGENT 3: SUPPORT AGENT
-# ============================================
-
 supportAgent = Agent(
     name='Customer Support',
     model=gemini_model,
@@ -357,11 +409,6 @@ supportAgent = Agent(
     tools=[],
     handoff_description='Nhân viên hỗ trợ khách hàng'
 )
-
-
-# ============================================
-# AGENT 4: TRIAGE AGENT (Main Coordinator)
-# ============================================
 
 triageAgent = Agent(
     name='BeWo Assistant',
@@ -373,34 +420,148 @@ triageAgent = Agent(
 
 
 # ============================================
-# MAIN FUNCTION
+# FUNCTION CALL VALIDATION & FILTERING
+# ============================================
+
+def filter_and_validate_function_calls(function_calls: List[Dict]) -> List[Dict]:
+    """
+    Filter và validate function calls trước khi execute
+    Tương đương logic trong geminiService.ts
+    """
+    validated_calls = []
+    
+    for fc in function_calls:
+        fn_name = fc.get("name")
+        fn_args = fc.get("args", {})
+        
+        # Validate save_address
+        if fn_name == "save_address":
+            if not validate_address_function_call(fn_args):
+                print(f"⚠️ Filtered invalid save_address call")
+                continue
+        
+        # Validate save_customer_info
+        elif fn_name == "save_customer_info":
+            if not validate_customer_info_function_call(fn_args):
+                print(f"⚠️ Filtered invalid save_customer_info call")
+                continue
+        
+        # Validate add_to_cart
+        elif fn_name == "add_to_cart":
+            if not fn_args.get("product_id"):
+                print(f"⚠️ Filtered invalid add_to_cart call: missing product_id")
+                continue
+        
+        # Function call hợp lệ
+        validated_calls.append(fc)
+    
+    if len(validated_calls) < len(function_calls):
+        print(f"⚠️ Filtered out {len(function_calls) - len(validated_calls)} invalid function calls")
+    
+    return validated_calls
+
+
+# ============================================
+# CONTINUATION CALL (THIẾU Ở BẢN CŨ)
+# ============================================
+
+async def call_agent_with_function_result(
+    context: Dict[str, Any],
+    user_message: str,
+    function_name: str,
+    function_result: Dict[str, Any]
+) -> Dict[str, str]:
+    """
+    Gọi agent SAU KHI function được execute để generate natural response
+    Tương đương callGeminiWithFunctionResult() trong TypeScript
+    """
+    try:
+        print(f"[Agent] Continuation call after function: {function_name}")
+        
+        # Build continuation prompt
+        continuation_message = f"""
+🔧 FUNCTION ĐÃ THỰC THI: {function_name}
+📊 KẾT QUẢ: {json.dumps(function_result, ensure_ascii=False, indent=2)}
+
+⚠️ KẾT QUẢ THỰC THI FUNCTION:
+{'✅ Thành công!' if function_result.get('success') else '❌ Thất bại!'}
+{function_result.get('message', '')}
+
+NHIỆM VỤ:
+1. Nếu thành công → Thông báo cho khách một cách tự nhiên, thân thiện
+2. Nếu thất bại → Xin lỗi và hướng dẫn khách cung cấp đúng thông tin
+
+VÍ DỤ RESPONSE THÀNH CÔNG (save_address):
+"Dạ em đã ghi nhận địa chỉ của chị rồi ạ! ✨
+Địa chỉ giao hàng: {function_result.get('data', {}).get('address_line', '[ĐỊA CHỈ]')}
+Chị cần em hỗ trợ gì thêm không ạ? 💕"
+
+VÍ DỤ RESPONSE THẤT BẠI:
+"Dạ xin lỗi chị, địa chỉ chưa đầy đủ ạ 😊
+Chị vui lòng cung cấp đầy đủ: số nhà + tên đường + thành phố nhé!"
+
+Tin nhắn gốc của khách: "{user_message}"
+
+Hãy tạo response TỰ NHIÊN dựa trên kết quả function!
+"""
+        
+        # Run agent với continuation message
+        result = await Runner.run(triageAgent, continuation_message)
+        
+        return {
+            "text": result.final_output or "Đã xử lý xong ạ! 💕"
+        }
+        
+    except Exception as e:
+        print(f"[Agent] Continuation call ERROR: {e}")
+        
+        # Fallback response based on function result
+        if function_result.get("success"):
+            if function_result.get("message"):
+                return {"text": function_result["message"]}
+            return {"text": "Đã lưu thông tin thành công ạ! ✨"}
+        else:
+            if function_result.get("message"):
+                return {"text": function_result["message"]}
+            return {"text": "Có lỗi xảy ra, chị vui lòng thử lại nhé 😊"}
+
+
+# ============================================
+# MAIN FUNCTION (IMPROVED)
 # ============================================
 
 async def run_bewo_agent(
     message: str,
-    context: Optional[Any] = None
+    context: Optional[Dict[str, Any]] = None
 ) -> Dict[str, Any]:
     """
     Chạy multi-agent system để xử lý tin nhắn
+    IMPROVED với validation, continuation call, và error handling
     
     Args:
         message: Tin nhắn của user
         context: Context bao gồm history, products, cart, profile, etc.
     
     Returns:
-    {
-        "text": str,
-        "products": List[Dict],
-        "tokens": int,
-        "type": str,
-        "functionCalls": List[Dict]
-    }
+        {
+            "text": str,
+            "products": List[Dict],
+            "tokens": int,
+            "type": str,
+            "functionCalls": List[Dict]
+        }
     """
     try:
         print(f"[Agent] Processing message: \"{message}\"")
         
-        # Run agent with context
-        result = await Runner.run(triageAgent, message)
+        # Build full prompt with context (IMPROVEMENT: inject context vào agent)
+        if context:
+            full_message = await build_full_prompt_with_context(context, message)
+        else:
+            full_message = message
+        
+        # Run agent
+        result = await Runner.run(triageAgent, full_message)
 
         # Extract products & function calls
         products = []
@@ -409,7 +570,6 @@ async def run_bewo_agent(
         if hasattr(result, 'context_wrapper') and result.context_wrapper:
             print(f"[Agent] Run completed: {result.run.id if hasattr(result, 'run') else 'N/A'}")
             
-            # ✅ FIX: Access single run instead of iterating runs
             if hasattr(result, 'run') and result.run:
                 run = result.run
                 for msg in run.messages:
@@ -441,22 +601,39 @@ async def run_bewo_agent(
                                     except Exception as e:
                                         print(f"[Agent] ❌ Failed to parse products: {e}")
 
-        # Determine type
-        rec_type = "product_recommendation" if products else "conversational"
+        # IMPROVEMENT: Validate và filter function calls
+        validated_function_calls = filter_and_validate_function_calls(function_calls)
         
+        # # Determine type (IMPROVEMENT: better type classification)
+        # rec_type = "showcase" if products else "conversational"
+        # AFTER
+        def classify_response_type(products: List, function_calls: List, response_text: str) -> str:
+            """Classify response type giống TypeScript"""
+            # Có products mới → showcase
+            if products and len(products) > 0:
+                return "showcase"
+            
+            # Mention sản phẩm đã có trong context (không show card mới)
+            # Check keywords: "sản phẩm này", "mẫu đó", "giá", "màu"
+            mention_keywords = ["sản phẩm", "mẫu", "giá", "màu", "size", "còn hàng"]
+            if any(kw in response_text.lower() for kw in mention_keywords):
+                return "mention"
+            
+            return "none"
+        rec_type = classify_response_type(products, validated_function_calls, result.final_output)
         # Get tokens
         tokens = 0
         if hasattr(result, 'context_wrapper') and hasattr(result.context_wrapper, 'usage'):
             tokens = result.context_wrapper.usage.total_tokens
 
-        print(f"[Agent] Response generated: {len(products)} products, {len(function_calls)} function calls, {tokens} tokens")
+        print(f"[Agent] Response: {len(products)} products, {len(validated_function_calls)} function calls, {tokens} tokens")
         
         return {
             "text": result.final_output,
             "products": products,
             "tokens": tokens,
             "type": rec_type,
-            "functionCalls": function_calls
+            "functionCalls": validated_function_calls
         }
         
     except Exception as e:
@@ -464,6 +641,7 @@ async def run_bewo_agent(
         import traceback
         traceback.print_exc()
         
+        # IMPROVEMENT: Better fallback response
         return {
             "text": "Xin lỗi chị, hệ thống đang bận. Vui lòng thử lại sau ít phút nhé! 🙏",
             "products": [],
@@ -474,49 +652,13 @@ async def run_bewo_agent(
 
 
 # ============================================
-# EXAMPLE USAGE WITH CONTEXT
+# EXPORT
 # ============================================
 
-async def run_with_context_example():
-    """Ví dụ sử dụng với context"""
-    
-    # Mock context data
-    context = {
-        "profile": {
-            "preferred_name": "Lan",
-            "phone": "0987654321",
-            "usual_size": "M",
-            "style_preference": ["thanh lịch", "sang trọng"],
-            "total_orders": 3
-        },
-        "saved_address": {
-            "address_line": "123 Nguyễn Trãi",
-            "ward": "Phường Thanh Xuân Trung",
-            "district": "Quận Thanh Xuân",
-            "city": "Hà Nội",
-            "phone": "0987654321"
-        },
-        "history": [
-            {"sender_type": "customer", "content": {"text": "Chào shop"}},
-            {"sender_type": "bot", "content": {"text": "Dạ chào chị Lan ạ 🌷"}},
-            {"sender_type": "customer", "content": {"text": "Cho em xem áo vest"}}
-        ],
-        "products": [],
-        "cart": []
-    }
-    
-    # Test message
-    message = "Cho em xem áo vest thanh lịch đi làm"
-    
-    # Run agent
-    result = await run_bewo_agent(message, context)
-    
-    print("\n" + "="*60)
-    print("RESULT:")
-    print(json.dumps(result, indent=2, ensure_ascii=False))
-    print("="*60)
-
-
-if __name__ == "__main__":
-    import asyncio
-    asyncio.run(run_with_context_example())
+__all__ = [
+    'run_bewo_agent',
+    'call_agent_with_function_result',
+    'validate_address_function_call',
+    'validate_customer_info_function_call',
+    'filter_and_validate_function_calls'
+]
